@@ -95,13 +95,14 @@ simplify (Sum x)
         where
             add' :: [Expr] -> Expr -> [Expr]
             add' x (Const y)
-                = [v | v<-x, not.isConst $ v] ++ [Const . (+y) . maybe 0 getConst . find isConst $ x]
+                = [v | v<-x, not $ isConst v] ++
+                    [Const . sum $ y : [getConst v | v<-x, isConst v]]
+            
             add' x y
                 = [v | v<-x, getTerms v /= getTerms y] ++
                     [simplify $
-                        (Const . (+ getConstTerm y) . maybe 0 getConstTerm
-                        . find (== getTerms y) . map getTerms $ x)
-                            `mul` (getTerms y)]
+                        (Const . sum $ [getConstTerm v | v<-x, getTerms v == getTerms y] ++ [getConstTerm y])
+                            `mul` getTerms y]
 
             getTerms (Prod x) = simplify . Prod . sort $ [v | v<-x, not . isConst $ v]
             getTerms (Symbol x) = Symbol x
@@ -122,15 +123,15 @@ simplify (Prod x)
             mul' :: [Expr] -> Expr -> [Expr]
             mul' x (Const 0) = [Const 0]
             mul' x (Const y)
-                = (Const . (*y) . maybe 1 getConst . find isConst $ x)
-                    : [v | v<-x, not . isConst $ v]
+                = (Const . product $ y : [getConst v | v<-x, isConst v]) -- think of returning 1
+                    : [v | v<-x, not $ isConst v]
+            
             mul' x y
                 = [v | v<-x, getBase v /= getBase y] ++
                     [simplify $
                         Power (getBase y)
-                            ((maybe (Const 0) getExp . find (== getBase y) . map getBase $ x)
-                                `add` (getExp y))]
-            
+                            (foldl1 add $ [getExp v | v <- x, getBase v == getBase y] ++ [getExp y])]
+
             getBase (Const x) = Const x
             getBase (Symbol x) = Symbol x
             getBase (Power x y) = x
@@ -142,15 +143,15 @@ simplify (Prod x)
             getExp (Sum x) = Const 1
 
 simplify (Power x y)
-    = s (simplify x) (simplify y)
+    = pow' (simplify x) (simplify y)
         where
-            s (Power (Const x) y) (Const z) = Power (Const (x^z)) y
-            s (Power x y) z = s x (simplify $ mul y z)
-            s (Const 1) x = Const 1
-            s x (Const 1) = x
-            s x (Const 0) = Const 1
-            s (Const x) (Const y) = Const (x^y)
-            s x y = Power x y
+            pow' (Power (Const x) y) (Const z) = Power (Const (x^z)) y
+            pow' (Power x y) z = pow' x (simplify $ mul y z)
+            pow' (Const 1) x = Const 1
+            pow' x (Const 1) = x
+            pow' x (Const 0) = Const 1
+            pow' (Const x) (Const y) = Const (x^y)
+            pow' x y = Power x y
 
 simplify (Const x) = Const x
 simplify (Symbol x) = Symbol x
