@@ -105,31 +105,34 @@ getConsts e = [g v | v<-e, isConst v]
     where g (Const x) = x
 
 getTerms :: Expr -> Expr
-getTerms (Prod x) = simplify $ Prod [v | v<-x, not $ isConst v]
-getTerms (Symbol x) = Symbol x
 getTerms (Const _) = Const 1
+getTerms (Symbol x) = Symbol x
+getTerms (Prod x) = simplify $ Prod [v | v<-x, not $ isConst v]
 getTerms (Power x y) = Power x y
 
 getConstTerm :: Expr -> Integer
-getConstTerm (Prod x) = product $ getConsts x
-getConstTerm (Symbol _) = 1
 getConstTerm (Const x) = x
+getConstTerm (Symbol _) = 1
+getConstTerm (Prod x) = product $ getConsts x
 getConstTerm (Power _ _) = 1
 
 getBase :: Expr -> Expr
 getBase (Const x) = Const x
 getBase (Symbol x) = Symbol x
-getBase (Power x y) = x
 getBase (Sum x) = Sum x
+getBase (Power x y) = x
 
 getExpo :: Expr -> Expr
 getExpo (Const x) = Const 1
 getExpo (Symbol x) = Const 1
-getExpo (Power x y) = y
 getExpo (Sum x) = Const 1
+getExpo (Power x y) = y
 
 
 simplify :: Expr -> Expr
+
+simplify (Const x) = Const x
+simplify (Symbol x) = Symbol x
 
 simplify (Sum x)
     = case foldl add' [] . map simplify $ x of
@@ -164,12 +167,10 @@ simplify (Prod x)
                     1 -> r
                     x -> Const x : r
                     where r = [v | v<-x, not $ isConst v]
-            
-            mul x y
+            mul' x y
                 = [v | v<-x, not $ getBase v `equals` getBase y] ++
                     [simplify $
-                        Power (getBase y)
-                            (foldl1 add $ [getExpo v | v<-x, getBase v `equals` getBase y] ++ [getExpo y])]
+                        Power (getBase y) (Sum $ [getExpo v | v<-x, getBase v `equals` getBase y] ++ [getExpo y])]
 
 simplify (Power x y)
     = pow' (simplify x) (simplify y)
@@ -183,8 +184,4 @@ simplify (Power x y)
             pow' x y = Power x y
 
 --pow' (Prod x) (Const y) = simplify $ Prod $ (Const $ (^y) $ product $ getConsts x) : Power (Prod [v | v<-x, not $ isConst v]) (Const y)  -- endless
-
-simplify (Const x) = Const x
-simplify (Symbol x) = Symbol x
-
 
