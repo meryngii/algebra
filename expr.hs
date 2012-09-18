@@ -164,7 +164,8 @@ simplify (Prod x)
                     1 -> r
                     x -> Const x : r
                     where r = [v | v<-x, not $ isConst v]
-
+            
+            mul x y
                 = [v | v<-x, not $ getBase v `equals` getBase y] ++
                     [simplify $
                         Power (getBase y)
