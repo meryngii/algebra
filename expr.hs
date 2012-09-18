@@ -16,6 +16,15 @@ data Expr = Const Integer | Symbol String
     | Sum [Expr] | Prod [Expr] | Power Expr Expr
         deriving (Show, Eq, Ord)
 
+equals :: Expr -> Expr -> Bool
+equals x y = s x == s y
+    where
+        s (Const x) = Const x
+        s (Symbol x) = Symbol x
+        s (Sum x) = Sum (sort $ map s x)
+        s (Prod x) = Prod (sort $ map s x)
+        s (Power x y) = Power (s x) (s y)
+
 showExpr :: Expr -> String
 showExpr (Const x) = show x
 showExpr (Symbol x) = x
@@ -37,6 +46,8 @@ add x y = Sum [x, y]
 
 -- 構文解析
 term, power, factor, expression :: [String] -> (Expr, [String])
+
+term ("-":is) = let (e', is') = factor is in (mul (Const $ -1) e', is')
 
 term ("(":is) = let (e', (")":is')) = expression is in (e', is')
 term (i:is) = case read' i of
@@ -84,6 +95,15 @@ isConst _ = False
 getConst :: Expr -> Integer
 getConst (Const x) = x
 
+assign (Symbol p) p' = a
+    where
+        a :: Expr -> Expr
+        a (Symbol x) | x == p = p'
+        a (Sum x) = Sum (map a x)
+        a (Prod x) = Prod (map a x)
+        a (Power x y) = Power (a x) (a y)
+        a x = x
+
 
 simplify :: Expr -> Expr
 
@@ -94,14 +114,18 @@ simplify (Sum x)
         x -> Sum x
         where
             add' :: [Expr] -> Expr -> [Expr]
+            add' x (Sum y) = foldl add' x y
+
             add' x (Const y)
                 = [v | v<-x, not $ isConst v] ++
-                    [Const . sum $ y : [getConst v | v<-x, isConst v]]
-            
+                    case sum $ y : [getConst v | v<-x, isConst v] of
+                        0 -> []
+                        x -> [Const x]
+
             add' x y
-                = [v | v<-x, getTerms v /= getTerms y] ++
+                = [v | v<-x, not $ getTerms v `equals` getTerms y] ++
                     [simplify $
-                        (Const . sum $ [getConstTerm v | v<-x, getTerms v == getTerms y] ++ [getConstTerm y])
+                        (Const . sum $ [getConstTerm v | v<-x, getTerms v `equals` getTerms y] ++ [getConstTerm y])
                             `mul` getTerms y]
 
             getTerms (Prod x) = simplify . Prod . sort $ [v | v<-x, not . isConst $ v]
@@ -121,26 +145,30 @@ simplify (Prod x)
         x -> Prod x
         where
             mul' :: [Expr] -> Expr -> [Expr]
-            mul' x (Const 0) = [Const 0]
+            mul' x (Prod y) = foldl mul' x y
+
             mul' x (Const y)
-                = (Const . product $ y : [getConst v | v<-x, isConst v]) -- think of returning 1
-                    : [v | v<-x, not $ isConst v]
-            
+                = case product $ y : [getConst v | v<-x, isConst v] of                
+                    0 -> [Const 0]
+                    1 -> r
+                    x -> Const x : r
+                    where r = [v | v<-x, not $ isConst v]
+
             mul' x y
-                = [v | v<-x, getBase v /= getBase y] ++
+                = [v | v<-x, not $ getBase v `equals` getBase y] ++
                     [simplify $
                         Power (getBase y)
-                            (foldl1 add $ [getExp v | v <- x, getBase v == getBase y] ++ [getExp y])]
+                            (foldl1 add $ [getExpo v | v<-x, getBase v `equals` getBase y] ++ [getExpo y])]
 
             getBase (Const x) = Const x
             getBase (Symbol x) = Symbol x
             getBase (Power x y) = x
             getBase (Sum x) = Sum x
 
-            getExp (Const x) = Const 1
-            getExp (Symbol x) = Const 1
-            getExp (Power x y) = y
-            getExp (Sum x) = Const 1
+            getExpo (Const x) = Const 1
+            getExpo (Symbol x) = Const 1
+            getExpo (Power x y) = y
+            getExpo (Sum x) = Const 1
 
 simplify (Power x y)
     = pow' (simplify x) (simplify y)
@@ -155,4 +183,6 @@ simplify (Power x y)
 
 simplify (Const x) = Const x
 simplify (Symbol x) = Symbol x
+
+
 
