@@ -185,6 +185,8 @@ simplify (Power x y)
             --pow' (Const x) (Const y) = Const (x^y)
             pow' x y = Power x y
 
+--pow' (Const 0) y = Const 0
+
 --pow' (Prod x) (Const y) = simplify $ Prod $ (Const $ (^y) $ product $ getConsts x) : Power (Prod [v | v<-x, not $ isConst v]) (Const y)  -- endless
 
 
