@@ -1,5 +1,6 @@
 
 import Data.Char
+import Data.Ratio
 import Data.List
 import Data.Maybe
 
@@ -12,7 +13,7 @@ read' s = case [x | (x,t) <- reads s, ("","") <- lex t] of
 
 
 -- 式表現
-data Expr = Const Integer | Symbol String
+data Expr = Const Rational | Symbol String
     | Sum [Expr] | Prod [Expr] | Power Expr Expr
         deriving (Show, Eq, Ord)
 
@@ -26,21 +27,23 @@ equals x y = s x == s y
         s (Power x y) = Power (s x) (s y)
 
 showExpr :: Expr -> String
-showExpr (Const x) = show x
+showExpr (Const x)
+    | denominator x == 1 = show (numerator x)
+    | otherwise = show (numerator x) ++ "/" ++ show (denominator x)
 showExpr (Symbol x) = x
-showExpr (Sum x) = "(" ++ (concat $ intersperse " + " $ map showExpr x) ++ ")"
-showExpr (Prod x) = (concat $ intersperse " * " $ map showExpr x)
+showExpr (Sum x) = "(" ++ (concat . intersperse " + " . map showExpr $ x) ++ ")"
+showExpr (Prod x) = (concat . intersperse " * " . map showExpr $ x)
 showExpr (Power x y) = showExpr x ++ "^" ++ showExpr y
 
 
-mul (Prod x) (Prod y) = Prod $ x ++ y
-mul (Prod x) y = Prod $ x ++ [y]
-mul x (Prod y) = Prod $ x : y
+mul (Prod x) (Prod y) = Prod (x ++ y)
+mul (Prod x) y = Prod (x ++ [y])
+mul x (Prod y) = Prod (x : y)
 mul x y = Prod [x, y]
 
-add (Sum x) (Sum y) = Sum $ x ++ y
-add x (Sum y) = Sum $ x : y
-add (Sum x) y = Sum $ x ++ [y]
+add (Sum x) (Sum y) = Sum (x ++ y)
+add x (Sum y) = Sum (x : y)
+add (Sum x) y = Sum (x ++ [y])
 add x y = Sum [x, y]
 
 
@@ -50,8 +53,8 @@ term, power, factor, expression :: [String] -> (Expr, [String])
 term ("-":is) = let (e', is') = factor is in (mul (Const $ -1) e', is')
 
 term ("(":is) = let (e', (")":is')) = expression is in (e', is')
-term (i:is) = case read' i of
-    Just x -> (Const x, is)
+term (i:is) = case (read' i) :: Maybe Integer of
+    Just x -> (Const (toRational x), is)
     Nothing -> (Symbol i, is)
 
 power = pow . term 
@@ -87,20 +90,11 @@ lexer (x:xs)
 parse = fst . expression . lexer
 
 
-assign (Symbol p) p' = a
-    where
-        a :: Expr -> Expr
-        a (Symbol x) | x == p = p'
-        a (Sum x) = Sum (map a x)
-        a (Prod x) = Prod (map a x)
-        a (Power x y) = Power (a x) (a y)
-        a x = x
-
 isConst :: Expr -> Bool
 isConst (Const _) = True
 isConst _ = False
 
-getConsts :: [Expr] -> [Integer]
+getConsts :: [Expr] -> [Rational]
 getConsts e = [g v | v<-e, isConst v]
     where g (Const x) = x
 
@@ -110,7 +104,7 @@ getTerms (Symbol x) = Symbol x
 getTerms (Prod x) = simplify $ Prod [v | v<-x, not $ isConst v]
 getTerms (Power x y) = Power x y
 
-getConstTerm :: Expr -> Integer
+getConstTerm :: Expr -> Rational
 getConstTerm (Const x) = x
 getConstTerm (Symbol _) = 1
 getConstTerm (Prod x) = product $ getConsts x
@@ -129,8 +123,16 @@ getExpo (Sum x) = Const 1
 getExpo (Power x y) = y
 
 
-simplify :: Expr -> Expr
+isIntegral :: Rational -> Bool
+isIntegral x = x == toRational (floor x)
 
+pow :: Rational -> Rational -> Expr
+pow x y
+    | isIntegral y = Const $ if y >= 0 then (x ^ floor y) else ((1 / x) ^ floor (-y))
+    | otherwise = Power (Const x) (Const y)
+
+
+simplify :: Expr -> Expr
 simplify (Const x) = Const x
 simplify (Symbol x) = Symbol x
 
@@ -175,13 +177,47 @@ simplify (Prod x)
 simplify (Power x y)
     = pow' (simplify x) (simplify y)
         where
-            pow' (Power (Const x) y) (Const z) = Power (Const (x^z)) y
+            --pow' (Power (Const x) y) (Const z) = Power (Const (x^z)) y
             pow' (Power x y) z = pow' x (simplify $ mul y z)
-            pow' (Const 1) x = Const 1
             pow' x (Const 1) = x
             pow' x (Const 0) = Const 1
-            pow' (Const x) (Const y) = Const (x^y)
+            pow' (Const x) (Const y) = pow x y
+            --pow' (Const x) (Const y) = Const (x^y)
             pow' x y = Power x y
 
 --pow' (Prod x) (Const y) = simplify $ Prod $ (Const $ (^y) $ product $ getConsts x) : Power (Prod [v | v<-x, not $ isConst v]) (Const y)  -- endless
+
+
+assign (Symbol p) p' = a
+    where
+        a :: Expr -> Expr
+        a (Symbol x) | x == p = p'
+        a (Sum x) = Sum (map a x)
+        a (Prod x) = Prod (map a x)
+        a (Power x y) = Power (a x) (a y)
+        a x = x
+
+
+expand :: Expr -> Expr
+expand = simplify . expand' . simplify
+
+expand' :: Expr -> Expr
+expand' (Const x) = Const x
+expand' (Symbol s) = Symbol s
+
+expand' (Sum xs) = Sum (map expand' xs)
+
+expand' (Prod xs) = Sum (foldl ex [Const 1] xs)
+    where
+        ex :: [Expr] -> Expr -> [Expr]
+        ex es (Sum xs) = [mul v w | v<-es, w<-xs]
+        ex es e = [mul v e | v<-es]
+
+expand' (Power x (Const y))
+    | isIntegral y =
+        if y' >= 0 then expand' $ foldl mul (Const 1) (replicate y' x)
+        else Power (expand' $ foldl mul (Const 1) (replicate (-y') x)) (Const $ -1)
+            where y' = floor y
+expand' (Power x y) = Power (expand' x) (expand' y)
+
 
